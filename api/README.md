@@ -437,3 +437,342 @@ Pour quitter l'interface en lignes de commandes de SQLite, tapez cette commande 
 ```sql
 .exit
 ```
+
+# Phase 1 : Développeur Python & Architecte API
+
+## Introduction
+
+![](architecture.png)
+
+
+### Explication du diagramme
+
+Une API (Application Programming Interface) est une interface qui permet à des applications ou des utilisateurs d'interagir avec un système. Ce diagramme représente comment une API fonctionne pour gérer des données et interagir avec une base de données.
+
+#### Étape par étape :
+
+1. **Les utilisateurs de l'API** (`API Users`)  
+   - Ce sont les personnes ou applications qui utilisent l'API pour envoyer ou récupérer des données.
+   - Pour interagir avec l'API, ils utilisent un **SDK** (Software Development Kit), qui est une bibliothèque (un package) Python facilitant l'envoi de requêtes.
+
+2. **Le transfert et la validation des données** (`Pydantic`)  
+   - Lorsque l'utilisateur envoie des requêtes à l'API, elles passent d'abord par **Pydantic**.  Nous parlerons davantage de Pydantic dans une autre session.
+   - Pydantic vérifie que les données sont correctes (par exemple, s'il manque une valeur ou si un type est incorrect).  
+
+3. **Le contrôleur API** (`FastAPI`)  
+   - FastAPI est le cœur de l'API. Il reçoit les requêtes des utilisateurs, traite les données et décide de ce qu'il faut faire (ex. : insérer de nouvelles données, récupérer des informations, etc.).
+   - Il agit comme un intermédiaire entre l'utilisateur et la base de données.
+
+4. **Les classes de base de données** (`SQLAlchemy`)  
+   - SQLAlchemy est une bibliothèque qui permet de communiquer avec la base de données de manière organisée.
+   - Il traduit les requêtes Python en instructions compréhensibles par la base de données.
+
+5. **La base de données** (`SQLite`)  
+   - SQLite est la database où se trouve les données.
+   - L'API envoie des requêtes pour récupérer des données de la database SQLite.
+
+#### En résumé :
+- L'utilisateur envoie des données via l'**SDK**.
+- Ces données sont **validées** (`Pydantic`).
+- L'API décide quoi faire (`FastAPI`).
+- Si nécessaire, elle stocke ou récupère des données via **SQLAlchemy**.
+- La base de données **SQLite** garde les informations de manière structurée.
+
+---
+
+L'API fonctionne comme un **restaurant moderne avec une tablette pour commander** :  
+
+1. **Le client (API Users)** arrive au restaurant et veut commander un plat.  
+2. **Le menu numérique (SDK en Python)** lui permet de passer commande facilement sans parler directement au serveur. Il peut sélectionner un plat en quelques clics.  
+3. **Le serveur (FastAPI)** reçoit la commande, la vérifie et la transmet en cuisine.  
+4. **Le chef (SQLAlchemy)** prépare le plat en récupérant les ingrédients depuis **la réserve (SQLite, la base de données)**.  
+5. Une fois le plat prêt, **le serveur revient avec la commande** et la sert au client.  
+
+**Pourquoi le SDK est important ?**  
+C’est comme une tablette qui facilite la commande : au lieu d’écrire une requête compliquée ou d’appeler directement le serveur, le client peut utiliser une interface simple et intuitive (le SDK) pour interagir avec l’API.
+
+
+## Classes SQLAlchemy
+
+### Pourquoi utiliser SQLAlchemy dans notre API ?  
+
+Lorsque vous créez une application qui interagit avec une base de données, comme notre API de films, vous avez deux choix pour gérer les données :  
+
+1. **Exécuter des requêtes SQL directement**  
+   - Vous devez établir une connexion avec SQLite.  
+   - Vous écrivez des requêtes SQL brutes pour insérer, récupérer et modifier des données.  
+   - Vous devez gérer manuellement les types de données (convertir entre les formats SQLite et Python).  
+   - Il faut se protéger contre les attaques par injection SQL.  
+
+2. **Utiliser un ORM (Object-Relational Mapper) comme SQLAlchemy**  
+   - SQLAlchemy permet d’interagir avec la base de données en manipulant des objets Python au lieu d’écrire du SQL brut.  
+   - Il simplifie la gestion des requêtes tout en garantissant la sécurité contre les injections SQL.  
+   - Il convertit automatiquement les données entre Python et SQLite.  
+   - Il facilite la migration de la base de données si on change de moteur SQL (ex: passer de SQLite à PostgreSQL).  
+
+Dans notre projet, SQLAlchemy joue un rôle clé dans la couche "Database Classes". Il agit comme **un intermédiaire entre notre API (FastAPI) et la base de données (SQLite)**, en traduisant les requêtes API en opérations sur la base de données tout en maintenant un code propre et sécurisé. 
+
+---
+
+Pour utiliser SQLAlchemy, nous devons préalablement l'installer dans notre environnement virtuel :
+
+```bash
+pip install sqlalchemy
+```
+
+---
+
+
+# Fichiers nécessaires pour requêter la database SQLite à l'aide de Python
+
+### database.py
+
+```python
+"""Database configuration"""
+from sqlalchemy import create_engine
+from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import sessionmaker
+
+SQLALCHEMY_DATABASE_URL = "sqlite:///./artist.db"
+
+# # Créer un moteur de base de données (engine) qui établit la connexion avec notre base SQLite (movies.db).
+engine = create_engine(
+    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
+)
+
+# Définir SessionLocal, qui permet de créer des sessions pour interagir avec la base de données.
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+# Définir Base, qui servira de classe de base pour nos modèles SQLAlchemy.
+Base = declarative_base()
+
+# # Optionnel : pour exécuter une vérification de la connexion à la base de données
+# # (peut être utile pour le débogage ou la configuration initiale).
+# if __name__ == "__main__":
+#     try:
+#         with engine.connect() as conn:
+#             print("Connexion à la base de données réussie.")
+#     except Exception as e:
+#         print(f"Erreur de connexion : {e}")
+```
+
+---
+
+Voici une explication claire et simple de ce que font les trois instructions, avec un focus sur **les arguments** :
+
+#### 1. `create_engine(...)`
+
+```python
+engine = create_engine(
+    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
+)
+```
+
+Cette ligne **crée un moteur de base de données SQLAlchemy** qui va permettre à ton application Python d’interagir avec la base SQLite.
+
+##### Explication des arguments :
+- **`SQLALCHEMY_DATABASE_URL`** : c’est l’URL de connexion à ta base. Exemple ici :
+  ```
+  "sqlite:///./artist.db"
+  ```
+  > Cela veut dire : utiliser SQLite et se connecter à un fichier nommé `artist.db` situé dans le même dossier que ce fichier Python.
+
+- **`connect_args={"check_same_thread": False}`** :
+  - SQLite, par défaut, **interdit l'utilisation de la même connexion dans plusieurs threads**.
+  - Or, FastAPI (et d'autres frameworks web) peuvent utiliser du **multithreading** pour gérer plusieurs requêtes en parallèle.
+  - Donc `check_same_thread=False` **désactive cette restriction**.
+  - Attention : À utiliser uniquement si **tu gères bien les sessions SQLAlchemy** (ce que fait FastAPI avec dépendances `Depends()`).
+
+---
+
+#### 2. `sessionmaker(...)`
+
+```python
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+```
+
+`sessionmaker` est une **fabrique de sessions**. Tu l’utilises pour créer des sessions qui vont te permettre de lire/écrire dans la base de données.
+
+##### Explication des arguments :
+- **`autocommit=False`** :
+  - Cela signifie que **tu dois valider les transactions manuellement** (avec `.commit()`).
+  - C’est plus sûr : tu peux rollback en cas d’erreur.
+
+- **`autoflush=False`** :
+  - Si c'était `True`, SQLAlchemy enverrait automatiquement les changements en base **avant certaines requêtes SELECT**.
+  - Ici, on veut plus de contrôle. Donc on met `False` : les changements sont flushés **manuellement ou au moment du commit**.
+
+- **`bind=engine`** :
+  - Lie la session à l’**engine** que tu as créé plus haut.
+  - Ainsi, toutes les sessions créées avec `SessionLocal()` vont utiliser la base `movies.db`.
+
+
+##### 🧪 Exemple d'utilisation de `SessionLocal` :
+
+```python
+db = SessionLocal()
+try:
+    movies = db.query(Movie).all()
+finally:
+    db.close()
+```
+
+---
+
+#### 3. `declarative_base()`
+
+```python
+from sqlalchemy.orm import declarative_base
+
+Base = declarative_base()
+```
+
+Cette ligne crée une **classe de base** nommée `Base` à partir de laquelle **tous tes modèles (tables)** vont hériter.
+
+
+##### Pourquoi c’est utile ?
+
+Lorsque tu définis une classe comme ceci :
+
+```python
+class Artist(Base):
+    __tablename__ = "artists"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, index=True)
+    url = Column(String)
+    pictureURL = Column(String)
+```
+
+Tu es en train de créer :
+- une **classe Python** (`Artist`) : que vous pouvez manipuler dans votre code FastAPI.
+- Un **lien direct avec une table SQL** (`artists`) : qui sera créée dans votre fichier `artist.db`.
+- Des colonnes structurées (`id`, `name`, `url…`) : avec des types de données précis (Integer, String).
+
+Mais pour que SQLAlchemy comprenne que `Artist` doit être **une table dans la base de données**, il faut qu’elle hérite d’une **classe parente spéciale**, et c’est justement ce que `Base = declarative_base()` fournit.
+
+##### En résumé :
+
+| Élément                  | Rôle                                                                 |
+|--------------------------|----------------------------------------------------------------------|
+| `declarative_base()`     | Crée une superclasse `Base`                                          |
+| `Base`                   | Sert de base à tous tes modèles SQLAlchemy                          |
+| Classe qui hérite de `Base` | Devient une table dans la base de données via la **declarative mapping** |
+
+
+### import_data.py
+
+Le script d'importation est le moteur qui permet de transformer vos fichiers plats (au format `.dat`) en une base de données relationnelle structurée. Il assure que les données brutes de Last.fm sont nettoyées, validées et insérées dans le bon ordre pour respecter l'intégrité de votre système.
+
+
+#### 1. Pourquoi ce script est-il crucial ?
+
+Contrairement à un simple copier-coller, ce script assure l'intelligence du transfert :
+- **Gestion des Dépendances** : Il importe les données dans un ordre précis (Artistes → Tags → Utilisateurs → Interactions) pour respecter les contraintes de clés étrangères.
+- **Performance (Batch Processing)** : Au lieu d'insérer les données ligne par ligne (ce qui prendrait des heures), il utilise des "batches" de 1000 objets. Cela réduit considérablement les accès disque et accélère l'importation.
+- **Nettoyage & Validation** : Il filtre les lignes malformées et gère les encodages de caractères complexes (UTF-8, Latin-1).
+
+```python
+"""Script d'importation des données Last.fm"""
+from sqlalchemy import Column, Integer, String, Float, ForeignKey
+from sqlalchemy.orm import relationship # permet des relations de clé étrangère entre les tables.
+from database import Base
+
+class Movie(Base):
+    __tablename__ = "movies"
+
+    movieId = Column(Integer, primary_key=True, index=True)
+    title = Column(String, nullable=False)
+    genres = Column(String)
+
+    ratings = relationship("Rating", back_populates="movie")
+    tags = relationship("Tag", back_populates="movie")
+    link = relationship("Link", uselist=False, back_populates="movie")
+
+
+class Rating(Base):
+    __tablename__ = "ratings"
+
+    userId = Column(Integer, primary_key=True)
+    movieId = Column(Integer, ForeignKey("movies.movieId"), primary_key=True)
+    rating = Column(Float)
+    timestamp = Column(Integer)
+
+    movie = relationship("Movie", back_populates="ratings")
+
+
+class Tag(Base):
+    __tablename__ = "tags"
+
+    userId = Column(Integer, primary_key=True)
+    movieId = Column(Integer, ForeignKey("movies.movieId"), primary_key=True)
+    tag = Column(String, primary_key=True)
+    timestamp = Column(Integer)
+
+    movie = relationship("Movie", back_populates="tags")
+
+
+class Link(Base):
+    __tablename__ = "links"
+
+    movieId = Column(Integer, ForeignKey("movies.movieId"), primary_key=True)
+    imdbId = Column(String)
+    tmdbId = Column(Integer)
+
+    movie = relationship("Movie", back_populates="link")
+```
+
+Chaque table est bien représentée avec ses clés primaires, clés étrangères et types.
+
+#### Explication de la classe Movie
+
+Nous allons maintenant définir la classe `Movie`, qui est la classe Python utilisée pour stocker les données de la table SQLite `movies`. Cette classe est une sous-classe de `Base`, un modèle de base importé depuis le fichier `database.py`.  
+
+Nous utilisons l’attribut spécial `__tablename__` pour indiquer à SQLAlchemy que cette classe est associée à la table `movies`. Ainsi, lorsque nous interrogerons SQLAlchemy avec la classe `Movie`, il saura automatiquement qu’il doit récupérer les données de la table `movies`. C’est l’un des principaux avantages d’un ORM : il permet de mapper le code Python à la base de données sous-jacente de manière transparente.  
+
+```python
+class Movie(Base):
+    __tablename__ = "movies"
+```
+
+Le reste de la définition de la classe `Movie` permet de mapper les colonnes de la base de données aux attributs Python correspondants. Chaque attribut est défini à l’aide de la fonction `Column` fournie par SQLAlchemy :  
+
+```python
+    movieId = Column(Integer, primary_key=True, index=True)
+    title = Column(String, nullable=False)
+    genres = Column(String)
+```
+
+Voici quelques points à noter sur ces définitions :  
+
+- **Les noms des attributs** (`movieId`, `title`, `genres`) correspondent directement aux noms des colonnes dans la base de données.  
+- **Les types de données** utilisés (`Integer`, `String`) sont fournis par SQLAlchemy et doivent être importés avant d’être utilisés. Ils correspondent aux types SQL sous-jacents dans SQLite.  
+- **La clé primaire** (`movieId`) est définie avec `primary_key=True`, ce qui permet d’assurer l’unicité des enregistrements et d’optimiser les requêtes.  
+
+En plus des colonnes, nous définissons des **relations** entre les tables en utilisant la fonction `relationship()`. Cela permet d’accéder facilement aux données associées sans avoir à écrire des jointures SQL complexes :  
+
+```python
+    ratings = relationship("Rating", back_populates="movie", cascade="all, delete")
+    tags = relationship("Tag", back_populates="movie", cascade="all, delete")
+    link = relationship("Link", back_populates="movie", uselist=False, cascade="all, delete")
+```
+
+Explication des relations :  
+
+- **`ratings = relationship("Rating", back_populates="movie")`**  
+  - Cela établit une relation entre la classe `Movie` et `Rating`.  
+  - `back_populates="movie"` signifie que chaque objet `Rating` aura aussi un attribut `movie` pointant vers le film correspondant.  
+
+- **`tags = relationship("Tag", back_populates="movie")`**  
+  - De la même manière, cette relation permet de récupérer tous les tags associés à un film.  
+
+- **`link = relationship("Link", back_populates="movie", uselist=False)`**  
+  - Cette relation est un peu différente : `uselist=False` signifie qu’il ne peut y avoir qu’un seul lien (`Link`) pour chaque film (`Movie`).  
+
+Grâce à ces relations, nous pourrons écrire du code comme ceci pour récupérer les évaluations d’un film :  
+
+```python
+movie = session.query(Movie).filter_by(movieId=1).first()
+print(movie.ratings)  # Affichera toutes les évaluations associées au film avec ID 1
+```
+
+Cela nous permet d’exploiter la puissance de SQLAlchemy pour manipuler les données de manière simple et intuitive.
