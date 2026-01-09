@@ -666,113 +666,113 @@ Le script d'importation est le moteur qui permet de transformer vos fichiers pla
 
 #### 1. Pourquoi ce script est-il crucial ?
 
-Contrairement à un simple copier-coller, ce script assure l'intelligence du transfert :
-- **Gestion des Dépendances** : Il importe les données dans un ordre précis (Artistes → Tags → Utilisateurs → Interactions) pour respecter les contraintes de clés étrangères.
-- **Performance (Batch Processing)** : Au lieu d'insérer les données ligne par ligne (ce qui prendrait des heures), il utilise des "batches" de 1000 objets. Cela réduit considérablement les accès disque et accélère l'importation.
-- **Nettoyage & Validation** : Il filtre les lignes malformées et gère les encodages de caractères complexes (UTF-8, Latin-1).
+- Importer **tous les fichiers** .dat **dans le bon ordre**
+- Créer automatiquement les **utilisateurs manquants**
+- Gérer correctement les **timestamps invalides ou manquants**
+- Optimiser les performances grâce aux **insertions par batch**
+- Afficher une **progression claire et en temps réel**
+- Vérifier la **cohérence finale des données importées**
+
+#### 2. Architecture générale
+
+Le script repose sur trois composants principaux :
+
+- **SQLAlchemy ORM** : Définition des modèles (User, Artist, Tag, etc.) et Mapping objet–relationnel propre et maintenable
+- **Fichiers `.dat` Last.fm** : Sources de données brutes
+- **Pipeline d’importation** : Fonctions dédiées à chaque table et Gestion centralisée via import_all_data()
+
 
 ```python
 """Script d'importation des données Last.fm"""
 from sqlalchemy import Column, Integer, String, Float, ForeignKey
 from sqlalchemy.orm import relationship # permet des relations de clé étrangère entre les tables.
 from database import Base
-
-class Movie(Base):
-    __tablename__ = "movies"
-
-    movieId = Column(Integer, primary_key=True, index=True)
-    title = Column(String, nullable=False)
-    genres = Column(String)
-
-    ratings = relationship("Rating", back_populates="movie")
-    tags = relationship("Tag", back_populates="movie")
-    link = relationship("Link", uselist=False, back_populates="movie")
-
-
-class Rating(Base):
-    __tablename__ = "ratings"
-
-    userId = Column(Integer, primary_key=True)
-    movieId = Column(Integer, ForeignKey("movies.movieId"), primary_key=True)
-    rating = Column(Float)
-    timestamp = Column(Integer)
-
-    movie = relationship("Movie", back_populates="ratings")
-
-
-class Tag(Base):
-    __tablename__ = "tags"
-
-    userId = Column(Integer, primary_key=True)
-    movieId = Column(Integer, ForeignKey("movies.movieId"), primary_key=True)
-    tag = Column(String, primary_key=True)
-    timestamp = Column(Integer)
-
-    movie = relationship("Movie", back_populates="tags")
-
-
-class Link(Base):
-    __tablename__ = "links"
-
-    movieId = Column(Integer, ForeignKey("movies.movieId"), primary_key=True)
-    imdbId = Column(String)
-    tmdbId = Column(Integer)
-
-    movie = relationship("Movie", back_populates="link")
 ```
+###### Configuration des données
+```python
+DATA_DIR = "D:/End_To_End_Data_Science_Project/Artirst_Backend/Data"
+```
+Ce paramètre définit le dossier contenant tous les fichiers `.dat`. Il est vérifié automatiquement avant toute importation afin d’éviter les erreurs d’exécution.
 
-Chaque table est bien représentée avec ses clés primaires, clés étrangères et types.
+###### Création des tables
+```python
+def create_tables():
+    Base.metadata.create_all(bind=engine)
+```
+Crée toutes les tables définies dans les modèles SQLAlchemy. Respecte automatiquement les clés primaires et étrangères. Évite toute création manuelle côté SQL
 
-#### Explication de la classe Movie
-
-Nous allons maintenant définir la classe `Movie`, qui est la classe Python utilisée pour stocker les données de la table SQLite `movies`. Cette classe est une sous-classe de `Base`, un modèle de base importé depuis le fichier `database.py`.  
-
-Nous utilisons l’attribut spécial `__tablename__` pour indiquer à SQLAlchemy que cette classe est associée à la table `movies`. Ainsi, lorsque nous interrogerons SQLAlchemy avec la classe `Movie`, il saura automatiquement qu’il doit récupérer les données de la table `movies`. C’est l’un des principaux avantages d’un ORM : il permet de mapper le code Python à la base de données sous-jacente de manière transparente.  
+###### Importation des artistes `(artists.dat)`
+- Lecture ligne par ligne du fichier
+- Conversion en objets Artist
+- Insertion par batch (1000 lignes)
 
 ```python
-class Movie(Base):
-    __tablename__ = "movies"
+db.bulk_save_objects(batch)
+db.commit()
 ```
+Cette méthode améliore fortement les performances par rapport aux insertions unitaires.
 
-Le reste de la définition de la classe `Movie` permet de mapper les colonnes de la base de données aux attributs Python correspondants. Chaque attribut est défini à l’aide de la fonction `Column` fournie par SQLAlchemy :  
+
+###### Importation des tags (`tags.dat`)
+Fonction : `import_tags`
+- Encodage spécifique (latin-1) pour éviter les erreurs de caractères
+- Stockage des identifiants et libellés des tags
+- Insertion optimisée par batch
+
+###### Importation des écoutes (`user_artists.dat`)
+Fonction : `import_user_artists`
+Cette étape est clé car :
+- Elle crée automatiquement les utilisateurs manquants
+- Elle enregistre le nombre d’écoutes (weight) par artiste
 
 ```python
-    movieId = Column(Integer, primary_key=True, index=True)
-    title = Column(String, nullable=False)
-    genres = Column(String)
+if user_id not in users_seen:
+    user = User(userID=user_id)
 ```
+Cela garantit l’intégrité référentielle sans prétraitement manuel.
 
-Voici quelques points à noter sur ces définitions :  
 
-- **Les noms des attributs** (`movieId`, `title`, `genres`) correspondent directement aux noms des colonnes dans la base de données.  
-- **Les types de données** utilisés (`Integer`, `String`) sont fournis par SQLAlchemy et doivent être importés avant d’être utilisés. Ils correspondent aux types SQL sous-jacents dans SQLite.  
-- **La clé primaire** (`movieId`) est définie avec `primary_key=True`, ce qui permet d’assurer l’unicité des enregistrements et d’optimiser les requêtes.  
+###### Gestion intelligente des timestamps
+Fonction : `import_user_tagged_artists`
 
-En plus des colonnes, nous définissons des **relations** entre les tables en utilisant la fonction `relationship()`. Cela permet d’accéder facilement aux données associées sans avoir à écrire des jointures SQL complexes :  
+- EConversion sécurisée des timestamps Last.fm (en millisecondes)
+- Extraction automatique : day, month, year
+- Gestion des timestamps invalides (0, valeurs hors plage)
 
 ```python
-    ratings = relationship("Rating", back_populates="movie", cascade="all, delete")
-    tags = relationship("Tag", back_populates="movie", cascade="all, delete")
-    link = relationship("Link", back_populates="movie", uselist=False, cascade="all, delete")
+try:
+    dt = datetime.fromtimestamp(timestamp / 1000)
+except (OSError, ValueError, OverflowError):
+    pass
 ```
+Cette logique évite les erreurs critiques tout en conservant un maximum d’informations exploitables pour l’analyse temporelle.
 
-Explication des relations :  
 
-- **`ratings = relationship("Rating", back_populates="movie")`**  
-  - Cela établit une relation entre la classe `Movie` et `Rating`.  
-  - `back_populates="movie"` signifie que chaque objet `Rating` aura aussi un attribut `movie` pointant vers le film correspondant.  
+###### Importation des relations d’amitié (`user_friends.dat`)
+Fonction : `import_user_friends`
 
-- **`tags = relationship("Tag", back_populates="movie")`**  
-  - De la même manière, cette relation permet de récupérer tous les tags associés à un film.  
+- Stocke les relations utilisateur ↔ ami
+- Compatible avec des analyses de graphes sociaux
+- Insertion rapide par batch
 
-- **`link = relationship("Link", back_populates="movie", uselist=False)`**  
-  - Cette relation est un peu différente : `uselist=False` signifie qu’il ne peut y avoir qu’un seul lien (`Link`) pour chaque film (`Movie`).  
 
-Grâce à ces relations, nous pourrons écrire du code comme ceci pour récupérer les évaluations d’un film :  
+###### Statistiques finales et validation
+Fonction : `display_final_statistics`
 
-```python
-movie = session.query(Movie).filter_by(movieId=1).first()
-print(movie.ratings)  # Affichera toutes les évaluations associées au film avec ID 1
+Affiche :
+- Nombre total d’artistes
+- Utilisateurs
+- Tags
+- Écoutes
+- Tags appliqués
+- Relations d’amitié
+
+Et vérifie les incohérences potentielles :
+
+```SQL
+SELECT COUNT(*) FROM user_taggedartists WHERE timestamp IS NULL
 ```
+Cela permet une validation immédiate de la qualité des données
 
-Cela nous permet d’exploiter la puissance de SQLAlchemy pour manipuler les données de manière simple et intuitive.
+
+
